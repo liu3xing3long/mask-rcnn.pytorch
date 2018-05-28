@@ -62,8 +62,12 @@ def im_detect_all(model, im, box_proposals=None, timers=None):
         timers = defaultdict(Timer)
 
     timers['im_detect_bbox'].tic()
-    scores, boxes, im_scale, blob_conv = im_detect_bbox(
-        model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, box_proposals)
+    if cfg.TEST.BBOX_AUG.ENABLED:
+        raise NotImplementedError
+        # scores, boxes, im_scale, blob_conv = im_detect_bbox_aug(model, im, box_proposals)
+    else:
+        scores, boxes, im_scale, blob_conv = im_detect_bbox(
+            model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, box_proposals)
     timers['im_detect_bbox'].toc()
 
     # score and boxes are from the whole image after score thresholding and nms
@@ -76,7 +80,11 @@ def im_detect_all(model, im, box_proposals=None, timers=None):
 
     if cfg.MODEL.MASK_ON and boxes.shape[0] > 0:
         timers['im_detect_mask'].tic()
-        masks = im_detect_mask(model, im_scale, boxes, blob_conv)
+        if cfg.TEST.MASK_AUG.ENABLED:
+            raise NotImplementedError
+            # masks = im_detect_mask_aug(model, im, boxes, blob_conv)
+        else:
+            masks = im_detect_mask(model, im_scale, boxes, blob_conv)
         timers['im_detect_mask'].toc()
 
         timers['misc_mask'].tic()
@@ -89,7 +97,7 @@ def im_detect_all(model, im, box_proposals=None, timers=None):
         timers['im_detect_keypoints'].tic()
         if cfg.TEST.KPS_AUG.ENABLED:
             raise NotImplementedError
-            # heatmaps = im_detect_keypoints_aug(model, im, boxes)
+            # heatmaps = im_detect_keypoints_aug(model, im, boxes, blob_conv)
         else:
             heatmaps = im_detect_keypoints(model, im_scale, boxes, blob_conv)
         timers['im_detect_keypoints'].toc()
@@ -121,8 +129,12 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
     if cfg.FPN.MULTILEVEL_ROIS and not cfg.MODEL.FASTER_RCNN:
         _add_multilevel_rois_for_test(inputs, 'rois')
 
-    inputs['data'] = [Variable(torch.from_numpy(inputs['data']), volatile=True)]
-    inputs['im_info'] = [Variable(torch.from_numpy(inputs['im_info']), volatile=True)]
+    if cfg.PYTORCH_VERSION_LESS_THAN_040:
+        inputs['data'] = [Variable(torch.from_numpy(inputs['data']), volatile=True)]
+        inputs['im_info'] = [Variable(torch.from_numpy(inputs['im_info']), volatile=True)]
+    else:
+        inputs['data'] = [Variable(torch.from_numpy(inputs['data']))]
+        inputs['im_info'] = [Variable(torch.from_numpy(inputs['im_info']))]
 
     return_dict = model(**inputs)
 
@@ -346,6 +358,9 @@ def segm_results(cls_boxes, masks, ref_boxes, im_h, im_w):
 
             # Get RLE encoding used by the COCO evaluation API
             rle = mask_util.encode(np.array(im_mask[:, :, np.newaxis], order='F'))[0]
+            # For dumping to json, need to decode the byte string.
+            # https://github.com/cocodataset/cocoapi/issues/70
+            rle['counts'] = rle['counts'].decode('ascii')
             segms.append(rle)
 
             mask_ind += 1
